@@ -37,6 +37,19 @@ Use an image-capable model in `session.model`; `session.reasoning_effort` defaul
 Credentials stay outside projects. Proxies are inherited from the environment;
 `vibuild run PROJECT --proxy URL` provides an explicit override.
 
+## Register an image sequence
+
+```bash
+vibuild init projects/demo
+vibuild register projects/demo --images /path/to/frames --fps 5 --device cuda
+```
+
+This runs VidMap and imports its reconstruction, including point tracks. Image names
+are naturally ordered; `--fps` supplies timing when original timestamps are absent.
+Video input also runs VidMap. Optional `runtime.vidmap.args` forwards upstream options.
+Only explicit `--from REC` skips it and imports existing
+calibration. The registration result reports `backend: vidmap` or `backend: import`.
+
 ## Import an existing reconstruction
 
 ```bash
@@ -56,4 +69,6 @@ an upstream undistorted export.
 entries, optionally with `evaluation_split: "fit"` or `"audit"`. It is unnecessary when
 filenames already express source seconds. Without explicit splits, every tenth
 registered image is reserved for the final audit. Each region needs at least two useful
-fit and two held-out views. Insufficient evidence blocks acceptance.
+fit and two held-out views. A single whole-scene task selects calibrated RGB directly
+without regional sparse-track coverage; the multi-region coverage rule is unchanged.
+Insufficient evidence still blocks acceptance.

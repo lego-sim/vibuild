@@ -10,8 +10,9 @@ project configuration. `doctor` and `status` accept `--json` for scripting. `VIB
 | `install blender\|ffmpeg\|vidmap` | Explicit installation; no implicit downloads |
 | `init PROJECT [--videos PATH]` | Create a project from one video or a directory |
 | `register PROJECT --device cuda [--fps 2]` | Sample and register video |
-| `register PROJECT --from REC --images DIR [--sources FILE]` | Import COLMAP output |
-| `partition PROJECT [--spec FILE --reviewed]` | Preview or approve spatial scope |
+| `register PROJECT --images DIR --device cuda [--fps 2]` | Run VidMap on an image sequence |
+| `register PROJECT --from REC --images DIR [--sources FILE]` | Explicitly skip VidMap and import COLMAP output |
+| `partition PROJECT [--spec FILE --reviewed]` | Initialize one region directly; review multiple regions |
 | `run PROJECT`, `status PROJECT`, `pause PROJECT`, `resume PROJECT` | Execution lifecycle |
 | `audit PROJECT` | Final visual acceptance on the current scene |
 

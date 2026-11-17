@@ -77,22 +77,28 @@ def register(
     if reconstruction:
         if not images:
             raise ValueError("--images is required when importing a reconstruction")
-        return import_reconstruction(
-            root, reconstruction, images, load(sources) if sources else None
-        )
+        return {
+            **import_reconstruction(
+                root, reconstruction, images, load(sources) if sources else None
+            ),
+            "backend": "import",
+        }
     if device not in ("cpu", "cuda"):
         raise ValueError("Choose --device cpu or --device cuda")
-    if not meta["videos"]:
+    if not meta["videos"] and not images:
         raise ValueError(
-            "No source videos; import an existing reconstruction with --from and --images"
+            "Provide source videos or --images DIR; --from REC explicitly skips VidMap"
         )
     from .registration.capture import prepare
     from .registration.vidmap import execute
 
-    capture, frames = prepare(root, configuration(root, config), fps)
+    capture, frames = prepare(root, configuration(root, config), fps, images)
     output = root / ".runtime/vidmap"
     execute(configuration(root, config), "run", capture, output, device)
-    return import_reconstruction(root, output / "rec", capture, frames)
+    return {
+        **import_reconstruction(root, output / "rec", capture, frames),
+        "backend": "vidmap",
+    }
 
 
 def partition(root, spec=None, reviewed=False, config=None):
@@ -100,7 +106,7 @@ def partition(root, spec=None, reviewed=False, config=None):
 
     root = Path(root).resolve()
     result = prepare_partition(root, spec, reviewed)
-    if not reviewed:
+    if "frames" not in result:
         return result
     if (root / "scene.blend").exists():
         raise ValueError("The project already has a scene")

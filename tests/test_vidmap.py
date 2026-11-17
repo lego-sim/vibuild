@@ -81,3 +81,14 @@ def test_vidmap_source_is_relative_to_checkout(tmp_path, monkeypatch):
     config.write_text(json.dumps(value))
     monkeypatch.setattr(resources, "ROOT", tmp_path)
     assert settings(config)["runtime"]["vidmap"]["source"] == str(source)
+
+
+def test_vidmap_forwards_configured_upstream_options(tmp_path):
+    config, _ = configured(tmp_path)
+    value = json.loads(config.read_text())
+    value["runtime"]["vidmap"]["args"] = ["frontend.roma.compile=false"]
+    config.write_text(json.dumps(value))
+    source = tmp_path / "input.mp4"
+    source.write_bytes(b"video")
+    result = adapter.execute(config, "run", source, tmp_path / "registration", "cpu")
+    assert Path(result["reconstruction"]).is_dir()

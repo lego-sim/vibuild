@@ -42,14 +42,13 @@ and Codex. See [setup](docs/setup.md) for configuration and existing reconstruct
 ```bash
 vibuild init projects/demo --videos /path/to/videos
 vibuild register projects/demo --device cuda
-vibuild partition projects/demo
-# Review partition.html; edit partition.review.json to define regions/alignment.
-vibuild partition projects/demo --spec projects/demo/partition.review.json --reviewed
+vibuild partition projects/demo    # one region: initialize and continue immediately
 vibuild run projects/demo
 ```
 
-The first partition is a single scope template. Split it using the video and spatial
-preview before modeling. Bounds and scene scale need review; they are not a survey.
+A single region uses the whole-scene fast path without manual partition review.
+For multiple regions, review `partition.html` and approve the specification with
+`partition PROJECT --spec FILE --reviewed`. Scene scale is not a survey.
 
 ```bash
 vibuild status projects/demo

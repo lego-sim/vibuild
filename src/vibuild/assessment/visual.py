@@ -88,20 +88,22 @@ def regional_coverage(frame, region):
     )
 
 
-def regional_candidates(frames, region, held_out=False):
+def regional_candidates(frames, region, held_out=False, whole_scene=False):
     """Source relevance is checked once, for automatic and explicit primary views alike."""
     return [
         f
         for f in frames
         if bool({"audit", "holdout"} & {f.get("evaluation_split"), f.get("split")})
         == held_out
-        and regional_coverage(f, region) >= 0.35
+        and (whole_scene or regional_coverage(f, region) >= 0.35)
     ]
 
 
 def select_views(frames, scope, count=3, held_out=False):
     """Fixed deterministic model views with substantial regional coverage and pose diversity."""
-    strong = regional_candidates(frames, scope["id"], held_out)
+    strong = regional_candidates(
+        frames, scope["id"], held_out, scope.get("whole_scene", False)
+    )
     local = [f for f in strong if f.get("core_region") == scope["id"]]
     pool = local if len(local) >= 2 else strong
     if not pool:
@@ -300,8 +302,13 @@ def object_context(inventory, scope, original, views):
             continue
         bounds = np.array(obj["world_bounds"])
         lo, hi = bounds.min(axis=0), bounds.max(axis=0)
-        if obj["name"] not in named and not any(
-            (hi >= low - 0.3).all() and (lo <= high + 0.3).all() for low, high in boxes
+        if (
+            not scope.get("whole_scene")
+            and obj["name"] not in named
+            and not any(
+                (hi >= low - 0.3).all() and (lo <= high + 0.3).all()
+                for low, high in boxes
+            )
         ):
             continue
         projections = {}
@@ -441,6 +448,11 @@ def prepare(args):
             "polygon": [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]],
             "core_z_interval": [lo[2], hi[2]],
         }
+        if partition.get("whole_scene"):
+            scope.update(
+                whole_scene=True,
+                scope="All source-visible content in this single scene; bounds are a preview envelope, not clipping limits.",
+            )
         if region.get("core_boxes"):
             scope.update(
                 core_boxes=region["core_boxes"],
@@ -449,8 +461,10 @@ def prepare(args):
         frames = []
         for association in partition["frames"]:
             visible = association.get("visible_regions", [])
-            if association.get("core_region") != rid and not any(
-                v["region"] == rid for v in visible
+            if (
+                not scope.get("whole_scene")
+                and association.get("core_region") != rid
+                and not any(v["region"] == rid for v in visible)
             ):
                 continue
             frame = raw.get(association["name"])
@@ -468,7 +482,10 @@ def prepare(args):
             eligible = {
                 str(f.get("index")): f
                 for f in regional_candidates(
-                    frames, rid, getattr(args, "held_out", False)
+                    frames,
+                    rid,
+                    getattr(args, "held_out", False),
+                    scope.get("whole_scene", False),
                 )
             }
             if len(set(frozen_ids)) != len(frozen_ids) or not set(frozen_ids) <= set(

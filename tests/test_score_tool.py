@@ -541,3 +541,15 @@ def test_standalone_judge_cannot_overwrite_active_external_assessor(
         score.save(out / "S01/.runtime/handoff.json", {"state": state})
         with pytest.raises(ValueError, match="External assessor"):
             score.judge_assessment(args)
+
+
+def test_whole_scene_selects_calibrated_views_without_sparse_tracks():
+    frames = [{**frame(i, i), "visible_regions": []} for i in range(1, 5)]
+    frames[-1]["evaluation_split"] = "audit"
+    scope = {"id": "R01", "whole_scene": True}
+    assert len(score.select_views(frames, scope, 3)) == 3
+    assert score.select_views(frames, {"id": "R01"}, 3) == []
+    assert [
+        f["index"] for f in score.select_views(frames, scope, 3, held_out=True)
+    ] == [4]
+    assert all(f["visible_regions"] == [] for f in frames)

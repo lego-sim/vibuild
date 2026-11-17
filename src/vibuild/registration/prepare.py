@@ -174,17 +174,13 @@ def prepare_partition(project, spec=None, reviewed=False):
                     "regions": [
                         {
                             "id": "R01",
-                            "name": "Review and split this scope",
+                            "name": "Whole scene",
                             "bounds_min": lo.tolist(),
                             "bounds_max": hi.tolist(),
                             "color": "#47a8bd",
                         }
                     ],
                 },
-            )
-        if reviewed:
-            raise ValueError(
-                "Read the review template and pass it with --spec FILE --reviewed"
             )
     spec = Path(spec)
     value = load(spec)
@@ -212,6 +208,10 @@ def prepare_partition(project, spec=None, reviewed=False):
         frame["rotation"] = (B @ frame["rotation"]).tolist()
     regions = value["regions"]
     validate_regions(regions)
+    whole_scene = len(regions) == 1
+    if whole_scene:
+        regions[0]["whole_scene"] = True
+    reviewed = reviewed or whole_scene
     point_labels = labels(xyz, regions)
     camera_labels = labels(np.array([f["center"] for f in frames]), regions)
     lookup = {int(ident): int(label) for ident, label in zip(points, point_labels)}
@@ -303,6 +303,7 @@ def prepare_partition(project, spec=None, reviewed=False):
         edges = list(pairs.values())
     data = {
         "schema_version": "partition_v1",
+        "whole_scene": whole_scene,
         "regions": regions,
         "frames": [],
         "interfaces": edges,

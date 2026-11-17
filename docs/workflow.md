@@ -3,9 +3,9 @@
 1. **Initialize:** copy source videos and local configuration into a project.
 2. **Register:** sample frames with decoded source timestamps; run the pinned VidMap
    checkout, or import a COLMAP reconstruction. Export fixed camera and RGB evidence.
-3. **Review partition:** inspect the spatial preview, define finite regional boxes and
-   alignment, and review topology. Approve explicitly with `--reviewed`; this freezes
-   inputs and creates an empty Blender scene containing the registered cameras.
+3. **Prepare scope:** one region skips manual review and initializes the whole scene
+   directly. Multiple regions require topology/scope review with `--reviewed`.
+   This freezes inputs and creates a Blender scene containing the registered cameras.
 4. **Model:** each fresh Codex session works on the active R region or J connection. It submits a scoped edit job; Python executes, renders, waits, and scores.
    The next decision receives current images and findings, without conversation history.
 5. **Closeout:** after visual passage, inspect existing seam views. At most one

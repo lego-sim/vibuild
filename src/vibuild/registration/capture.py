@@ -9,7 +9,7 @@ from vibuild.config import tool
 from vibuild.resources import load, save
 
 
-def prepare(project, config, fps=2):
+def prepare(project, config, fps=2, images=None):
     if fps <= 0:
         raise ValueError("Sampling fps must be positive")
     project = Path(project)
@@ -18,11 +18,47 @@ def prepare(project, config, fps=2):
     manifest = output / "sources.json"
     if manifest.exists():
         value = load(manifest)
+        if value.get("images") != (str(Path(images).resolve()) if images else None):
+            raise ValueError(
+                "Capture source is fixed; use a new project for different images"
+            )
         if value["fps"] != fps:
             raise ValueError(
                 "Capture sampling is fixed; use a new project for a different fps"
             )
         return output, value["frames"]
+    if images:
+        from vibuild.resources import copy
+
+        source = Path(images).resolve()
+        files = sorted(
+            (
+                p
+                for p in source.iterdir()
+                if p.suffix.lower() in (".jpg", ".jpeg", ".png")
+            ),
+            key=lambda p: [
+                int(part) if part.isdigit() else part
+                for part in re.split(r"(\d+)", p.name)
+            ],
+        )
+        if len(files) < 2:
+            raise ValueError("--images requires at least two ordered images")
+        frames = []
+        for index, path in enumerate(files):
+            name = "cam0/" + path.name
+            copy(path, output / name)
+            frames.append({"name": name, "video": source.name, "time": index / fps})
+        save(
+            manifest,
+            {
+                "fps": fps,
+                "frames": frames,
+                "images": str(source),
+                "timestamp_status": "sequence order divided by supplied fps",
+            },
+        )
+        return output, frames
     images = output / "cam0"
     images.mkdir(parents=True, exist_ok=True)
     frames = []

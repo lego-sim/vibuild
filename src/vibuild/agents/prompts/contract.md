@@ -1,6 +1,7 @@
 Model only the assigned region or connection in the current project. Keep registered
 cameras, world transform, scale, source inputs, and unrelated objects unchanged.
-A core is the union of its boxes; camera position does not limit visible geometry.
+A regional core is the union of its boxes; camera position does not limit visible geometry.
+For a whole_scene task, own the full source scene; bounds are a preview envelope.
 Shared components have one owner. Prioritize missing structures over appearance.
 
 Use one packed task-root scene.blend. Submit edits through the job queue for atomic

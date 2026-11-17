@@ -41,7 +41,8 @@ def test_reviewable_registration_keeps_original_images_and_reserved_views(
 ):
     root = registered_project
     preview = prepare_partition(root)
-    assert (root / "partition.html").is_file() and Path(preview["spec"]).is_file()
+    assert (root / "partition.html").is_file() and Path(preview["partition"]).is_file()
+    assert load(root / "partition.json")["whole_scene"] and "frames" in preview
     raw = load(root / ".runtime/registration.json")["frames"]
     assert len(raw) == 20 and sum(f["evaluation_split"] == "audit" for f in raw) == 2
     frame = raw[0]
@@ -87,7 +88,7 @@ def test_review_rejects_overlapping_regions_and_invalid_alignment(registered_pro
         prepare_partition(root, spec, True)
 
 
-def test_review_creates_registered_scene_and_one_initial_assessment(registered_project):
+def test_single_region_fast_path_creates_scene_without_review(registered_project):
     blender = os.environ.get("VIBUILD_TEST_BLENDER")
     if not blender:
         pytest.skip("set VIBUILD_TEST_BLENDER for lifecycle smoke")
@@ -97,8 +98,7 @@ def test_review_creates_registered_scene_and_one_initial_assessment(registered_p
     config = load(root / "vibuild.json")
     config["runtime"]["blender"] = blender
     save(root / "vibuild.json", config)
-    prepare_partition(root)
-    result = project.partition(root, root / "partition.review.json", True)
+    result = project.partition(root)
     assert load(root / "project.json")["inputs_frozen"] and result["scene"] == str(
         root / "scene.blend"
     )
@@ -201,3 +201,63 @@ def test_review_initializes_normal_connections_after_regions(registered_project)
     prepare = load(root / "J01/job_template.json")["steps"][0]["args"]
     assert "--connection" in prepare and prepare[prepare.index("--region") + 1] == "J01"
     assert list(root.rglob("*.blend")) == [root / "scene.blend"]
+
+
+def test_images_run_vidmap_and_only_explicit_from_skips_it(tmp_path, monkeypatch):
+    root = tmp_path / "project"
+    project.initialize(root)
+    images = tmp_path / "frames"
+    images.mkdir()
+    for i in range(2):
+        Image.new("RGB", (8, 8)).save(images / f"frame_{i:04}.png")
+    calls = []
+
+    def execute(config, action, capture, output, device):
+        assert action == "run" and device == "cpu"
+        assert sorted(p.name for p in (capture / "cam0").glob("*.png")) == [
+            "frame_0000.png",
+            "frame_0001.png",
+        ]
+        calls.append("vidmap")
+
+    def importer(project, rec, source, frames):
+        calls.append("import")
+        assert len(frames) == 2
+        return {"registered_frames": len(frames)}
+
+    monkeypatch.setattr("vibuild.registration.vidmap.execute", execute)
+    monkeypatch.setattr("vibuild.registration.prepare.import_reconstruction", importer)
+    result = project.register(root, images=images, device="cpu")
+    assert calls == ["vidmap", "import"] and result["backend"] == "vidmap"
+    calls.clear()
+    monkeypatch.setattr(
+        "vibuild.registration.prepare.import_reconstruction",
+        lambda *a: {"registered_frames": 2},
+    )
+    assert (
+        project.register(root, reconstruction=tmp_path / "rec", images=images)[
+            "backend"
+        ]
+        == "import"
+    )
+    assert not calls
+
+
+def test_multiple_regions_still_require_review(registered_project):
+    root = registered_project
+    spec = root / "regions.json"
+    save(
+        spec,
+        {
+            "regions": [
+                {"id": "R01", "bounds_min": [-1, -1, -1], "bounds_max": [0.1, 1, 5]},
+                {"id": "R02", "bounds_min": [0.1, -1, -1], "bounds_max": [1, 1, 5]},
+            ]
+        },
+    )
+    result = project.partition(root, spec)
+    assert "review" in result and "frames" not in result
+    assert (
+        not (root / "scene.blend").exists()
+        and not load(root / "project.json")["inputs_frozen"]
+    )

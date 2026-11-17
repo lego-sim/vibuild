@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 ROOT = Path.cwd()
-from vibuild.config import default_config, vidmap_runtime
+from vibuild.config import default_config, vidmap_runtime, settings
 
 
 def execute(config, action, source=None, output=None, device=None, overrides=()):
@@ -57,6 +57,7 @@ def execute(config, action, source=None, output=None, device=None, overrides=())
         "--device",
         device,
         "--terminate",
+        *settings(config)["runtime"]["vidmap"].get("args", []),
         *overrides,
     ]
     with log.open("a") as stream:
