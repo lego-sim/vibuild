@@ -1,0 +1,9 @@
+{
+  "frames": [
+    {"id": "selected-frame", "reference": "reference.npz", "prediction": "prediction.npz"}
+  ],
+  "classes": {"window_frame": 1, "window_pane": 2, "tile": 3},
+  "min_confidence": 0.5,
+  "limits": {"depth_abs_rel": 0.1, "depth_coverage": 0.95, "semantic_iou": 0.5, "instance_iou": 0.5, "instance_precision": 0.8, "instance_recall": 0.8, "instance_count_relative_error": 0.2},
+  "plausibility": {"status": "unknown", "reviewer": "", "evidence": [], "checks": {"dimensions": "unknown", "topology": "unknown", "openings": "unknown", "occlusion": "unknown"}}
+}

@@ -1,0 +1,163 @@
+{
+  "type": "object",
+  "properties": {
+    "region": {
+      "type": "string"
+    },
+    "views": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "scores": {
+            "type": "object",
+            "properties": {
+              "structure": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100,
+                "multipleOf": 5
+              },
+              "completeness": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100,
+                "multipleOf": 5
+              },
+              "alignment": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100,
+                "multipleOf": 5
+              },
+              "appearance": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100,
+                "multipleOf": 5
+              },
+              "connectivity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100,
+                "multipleOf": 5
+              }
+            },
+            "required": [
+              "structure",
+              "completeness",
+              "alignment",
+              "appearance",
+              "connectivity"
+            ],
+            "additionalProperties": false
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scores",
+          "confidence",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "structure",
+              "completeness",
+              "alignment",
+              "appearance",
+              "connectivity"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "major",
+              "minor"
+            ]
+          },
+          "frame_id": {
+            "type": "string"
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "observation": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "element": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "severity",
+          "frame_id",
+          "bbox",
+          "observation",
+          "action",
+          "element"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "region",
+    "views",
+    "findings",
+    "uncertainties"
+  ],
+  "additionalProperties": false
+}

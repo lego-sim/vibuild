@@ -1,0 +1,4 @@
+[submodule "third_party/vidmap"]
+	path = third_party/vidmap
+	url = https://github.com/cvg/vidmap.git
+	ignore = untracked

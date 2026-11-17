@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spatial plan</title>
+<style>
+body{font:15px system-ui;margin:24px;color:#ddd;background:#16191d}header{display:flex;gap:16px;align-items:center}h1{font-size:20px}main{display:grid;grid-template-columns:2fr 1fr;gap:16px}canvas,svg{width:100%;background:#20252b;border-radius:6px}canvas{height:60vh;touch-action:none}svg{height:60vh}button{color:inherit;background:#303840;border:0;padding:8px;cursor:pointer}img{max-width:240px;margin:8px}#order{margin:18px 0;line-height:2}#detail{white-space:pre-wrap}@media(max-width:700px){main{grid-template-columns:1fr}}
+</style>
+<header><h1>Spatial plan</h1><button id="reset">Reset view</button><span>Drag to rotate · Scroll to zoom</span></header>
+<main><canvas id="space"></canvas><svg id="graph" role="img" aria-label="Observed topology"></svg></main>
+<div id="order"></div><div id="legend"></div><p id="detail"></p><div id="images"></div>
+<script>
+const data=__PARTITION_DATA__;
+const regions=data.regions, canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d'), graph=document.querySelector('svg');
+let yaw=.6,pitch=.6,zoom=1,selected=null,drag=null;
+const corners=b=>Array.from({length:8},(_,i)=>b.bounds_min.map((v,k)=>(i>>k&1)?b.bounds_max[k]:v));
+const boxes=regions.flatMap(r=>(r.core_boxes||[r]).map(b=>({r,points:corners(b)})));
+const all=boxes.flatMap(b=>b.points),lo=[0,1,2].map(k=>Math.min(...all.map(p=>p[k]))),hi=[0,1,2].map(k=>Math.max(...all.map(p=>p[k])));
+const center=lo.map((v,k)=>(v+hi[k])/2),span=Math.max(1,...hi.map((v,k)=>v-lo[k]));
+function project(p){let [x,y,z]=p.map((v,k)=>v-center[k]),u=x*Math.cos(yaw)-y*Math.sin(yaw),v=x*Math.sin(yaw)+y*Math.cos(yaw),s=Math.min(canvas.width,canvas.height)*.8/span*zoom;return [canvas.width/2+u*s,canvas.height/2+(v*Math.sin(pitch)-z*Math.cos(pitch))*s]}
+function draw(){canvas.width=canvas.clientWidth*devicePixelRatio;canvas.height=canvas.clientHeight*devicePixelRatio;ctx.clearRect(0,0,canvas.width,canvas.height);
+const cloud=data.point_cloud||{};
+for(let i=0;i<(cloud.positions||[]).length;i++){const p=project(cloud.positions[i]),c=(cloud.colors||[])[i]||[110,120,130];ctx.fillStyle=`rgba(${c.join(',')},.3)`;ctx.fillRect(p[0],p[1],devicePixelRatio,devicePixelRatio)}
+let previous=new Map();ctx.strokeStyle='#718999';ctx.lineWidth=devicePixelRatio;
+for(const c of data.cameras||[]){const p=project(c.center),last=previous.get(c.video);if(last&&last.segment===c.segment){ctx.beginPath();ctx.moveTo(...last.p);ctx.lineTo(...p);ctx.stroke()}previous.set(c.video,{p,segment:c.segment})}
+for(const {r,points} of boxes){ctx.strokeStyle=r.color||'#9ac';ctx.lineWidth=(selected===r.id?3:1)*devicePixelRatio;for(let i=0;i<8;i++)for(let k=0;k<3;k++)if(!(i>>k&1)){const a=project(points[i]),b=project(points[i|1<<k]);ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke()}const c=project([0,1,2].map(k=>points.reduce((s,p)=>s+p[k],0)/8));ctx.fillStyle=ctx.strokeStyle;ctx.font=`${13*devicePixelRatio}px system-ui`;ctx.fillText(r.id,...c)}}
+function choose(r){selected=r.id;document.querySelector('#detail').textContent=r.id+' · '+r.name+'\n'+JSON.stringify(r.core_boxes||[{bounds_min:r.bounds_min,bounds_max:r.bounds_max}]);const target=document.querySelector('#images');target.replaceChildren();for(const t of r.thumbnails||[]){const img=document.createElement('img');img.src=t.src;img.alt=t.name;target.append(img)}draw()}
+const ns='http://www.w3.org/2000/svg',positions=new Map(regions.map((r,i)=>[r.id,[220+170*Math.cos(i*2*Math.PI/regions.length),220+170*Math.sin(i*2*Math.PI/regions.length)]]));graph.setAttribute('viewBox','0 0 440 440');
+function element(tag,attrs,text){const el=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))el.setAttribute(k,v);if(text)el.textContent=text;graph.append(el);return el}
+for(const e of data.interfaces){if(e.status!=='observed_transition')continue;const [a,b]=e.regions.map(id=>positions.get(id));element('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#89949f'});element('text',{x:(a[0]+b[0])/2,y:(a[1]+b[1])/2,fill:'#aaa','font-size':10},e.id)}
+for(const r of regions){const [x,y]=positions.get(r.id);element('circle',{cx:x,cy:y,r:19,fill:r.color||'#689'}).onclick=()=>choose(r);element('text',{x,y:y+4,'text-anchor':'middle',fill:'#fff','font-size':12,'pointer-events':'none'},r.id);const b=document.createElement('button');b.textContent=r.id;b.style.borderBottom=`3px solid ${r.color}`;b.onclick=()=>choose(r);document.querySelector('#legend').append(b)}
+const plan=data.graph_analysis.execution_plan;document.querySelector('#order').textContent=plan.status==='planned'?plan.chains.map(c=>c.steps.map(s=>s.id).join(' → ')).join(' | '):plan.errors.join('\n');
+canvas.onpointerdown=e=>{drag=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId)};canvas.onpointermove=e=>{if(!drag)return;yaw+=(e.clientX-drag[0])*.01;pitch=Math.max(-1.5,Math.min(1.5,pitch+(e.clientY-drag[1])*.01));drag=[e.clientX,e.clientY];draw()};canvas.onpointerup=()=>drag=null;canvas.onwheel=e=>{e.preventDefault();zoom=Math.max(.2,Math.min(8,zoom*Math.exp(-e.deltaY*.001)));draw()};document.querySelector('#reset').onclick=()=>{yaw=.6;pitch=.6;zoom=1;draw()};window.onresize=draw;draw();
+</script></html>
