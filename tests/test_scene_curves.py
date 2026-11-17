@@ -1,16 +1,15 @@
 """Geometry invariants plus an optional actual Blender integration smoke test."""
+
 import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 from collections import Counter
 
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
-from scene_curves import bezier, line, sample_path, tube_mesh, wall_mesh
+from vibuild.blender.curves import bezier, line, sample_path, tube_mesh, wall_mesh
 
 
 def assert_solid(mesh):
@@ -28,16 +27,22 @@ def assert_solid(mesh):
 
 
 def test_straight_landing_and_tangential_curve_keep_exact_join_and_endpoints():
-    p = sample_path([line((0, 0, 0), (1, 0, 0)), bezier((1, 0, 0), (2, 0, 0), (2, 1, 1), (2, 2, 1))], max_step=.1)
+    p = sample_path(
+        [
+            line((0, 0, 0), (1, 0, 0)),
+            bezier((1, 0, 0), (2, 0, 0), (2, 1, 1), (2, 2, 1)),
+        ],
+        max_step=0.1,
+    )
     assert np.array_equal(p[0], [0, 0, 0]) and np.array_equal(p[-1], [2, 2, 1])
     assert np.count_nonzero(np.all(p == [1, 0, 0], axis=1)) == 1
     assert np.all(p[p[:, 0] <= 1, 1:] == 0)
-    assert np.max(np.linalg.norm(np.diff(p, axis=0), axis=1)) <= .10000001
-    mesh = tube_mesh(p, radius=.03)
+    assert np.max(np.linalg.norm(np.diff(p, axis=0), axis=1)) <= 0.10000001
+    mesh = tube_mesh(p, radius=0.03)
     assert_solid(mesh)
     rings = mesh.vertices.reshape(len(p), 16, 3)
     assert np.allclose(rings.mean(axis=1), p)
-    assert np.allclose(np.linalg.norm(rings - p[:, None, :], axis=2), .03)
+    assert np.allclose(np.linalg.norm(rings - p[:, None, :], axis=2), 0.03)
 
 
 def test_gaps_and_unintended_tangent_breaks_reject():
@@ -45,27 +50,35 @@ def test_gaps_and_unintended_tangent_breaks_reject():
         sample_path([line((0, 0, 0), (1, 0, 0)), line((1.001, 0, 0), (2, 0, 0))])
     with pytest.raises(ValueError, match="Tangent break"):
         sample_path([line((0, 0, 0), (1, 0, 0)), line((1, 0, 0), (1, 1, 0))])
-    p = sample_path([line((0, 0, 0), (1, 0, 0)), line((1, 0, 0), (1, 1, 0), corner=True)], max_step=1)
+    p = sample_path(
+        [line((0, 0, 0), (1, 0, 0)), line((1, 0, 0), (1, 1, 0), corner=True)],
+        max_step=1,
+    )
     assert np.array_equal(p, [[0, 0, 0], [1, 0, 0], [1, 1, 0]])
 
 
 def test_wall_continuity_sloped_heights_and_exact_straight_volume():
     p = sample_path([line((0, 0, 0), (2, 0, 0))])
-    mesh = wall_mesh(p, thickness=.2, bottom=p[:, 0] * .1, top=2 + p[:, 0] * .1)
-    assert assert_solid(mesh) == pytest.approx(.8)
+    mesh = wall_mesh(p, thickness=0.2, bottom=p[:, 0] * 0.1, top=2 + p[:, 0] * 0.1)
+    assert assert_solid(mesh) == pytest.approx(0.8)
     assert len(mesh.vertices) == 4 * len(p)
     # One continuous curved wall retains shared vertices across all sampled sections.
     curved = sample_path([bezier((0, 0, 0), (1, 0, 0), (2, 1, 0), (2, 2, 0))])
-    assert_solid(wall_mesh(curved, thickness=.1, bottom=0, top=2))
+    assert_solid(wall_mesh(curved, thickness=0.1, bottom=0, top=2))
 
 
-@pytest.mark.parametrize("operation", [
-    lambda: sample_path([line((0, 0, 0), (1, 0, 0))], max_step=0),
-    lambda: tube_mesh([[0, 0, 0], [0, 0, 0]], radius=.1),
-    lambda: tube_mesh([[0, 0, 0], [1, 0, 0], [0, 0, 0]], radius=.1),
-    lambda: wall_mesh([[0, 0, 0], [1, 0, 0]], thickness=.1, bottom=2, top=1),
-    lambda: wall_mesh([[0, 0, 0], [1, 0, 0], [1, .01, 0]], thickness=1, bottom=0, top=2),
-])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda: sample_path([line((0, 0, 0), (1, 0, 0))], max_step=0),
+        lambda: tube_mesh([[0, 0, 0], [0, 0, 0]], radius=0.1),
+        lambda: tube_mesh([[0, 0, 0], [1, 0, 0], [0, 0, 0]], radius=0.1),
+        lambda: wall_mesh([[0, 0, 0], [1, 0, 0]], thickness=0.1, bottom=2, top=1),
+        lambda: wall_mesh(
+            [[0, 0, 0], [1, 0, 0], [1, 0.01, 0]], thickness=1, bottom=0, top=2
+        ),
+    ],
+)
 def test_invalid_or_folded_geometry_rejects(operation):
     with pytest.raises(ValueError):
         operation()
@@ -76,11 +89,11 @@ def test_blender_replaces_geometry_preserving_scene_contract(tmp_path):
     if not blender:
         pytest.skip("Set VIBUILD_TEST_BLENDER for actual Blender smoke test")
     script = tmp_path / "smoke.py"
-    tools = str(Path(__file__).parents[1] / "tools")
-    script.write_text(f'''import sys, os, json
-sys.path.insert(0, {tools!r})
+    tools = str(Path(__file__).parents[1] / "src")
+    script.write_text(f"""import sys, os, json
 import bpy, bmesh
-from scene_curves import *
+sys.path.insert(0, {tools!r})
+from vibuild.blender.curves import *
 bpy.ops.wm.read_factory_settings(use_empty=True)
 collection=bpy.data.collections.new("R05_owned")
 bpy.context.scene.collection.children.link(collection)
@@ -113,9 +126,26 @@ else: raise AssertionError("Existing UV must not silently disappear")
 assert obj.data==old
 print(json.dumps({{"rail_vertices":len(obj.data.vertices),"wall_vertices":len(wall.data.vertices),"scene_saved":bool(bpy.data.filepath)}}))
 sys.stdout.flush();sys.stderr.flush();os._exit(0)
-''')
-    result = subprocess.run([blender, "--background", "--factory-startup", "--python-exit-code", "1", "--python", str(script)], capture_output=True, text=True, timeout=60)
+""")
+    result = subprocess.run(
+        [
+            blender,
+            "--background",
+            "--factory-startup",
+            "--python-exit-code",
+            "1",
+            "--python",
+            str(script),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert result.returncode == 0, result.stdout + result.stderr
-    report = next(json.loads(row) for row in result.stdout.splitlines() if row.startswith('{"rail_vertices"'))
+    report = next(
+        json.loads(row)
+        for row in result.stdout.splitlines()
+        if row.startswith('{"rail_vertices"')
+    )
     assert report["rail_vertices"] > report["wall_vertices"] > 8
     assert report["scene_saved"] is False

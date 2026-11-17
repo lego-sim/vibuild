@@ -1,122 +1,215 @@
-"""Video-guided modeling with configured local tools."""
+"""Video-guided Blender modeling."""
+
 import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
-import shutil
-from . import resources
-from .config import default_config, doctor, settings, tool
+
+from .config import default_config, settings, setup, tool
 
 
 def parser():
-    root=argparse.ArgumentParser(prog='vibuild',description=__doc__)
-    commands=root.add_subparsers(dest='cmd',required=True)
-    def config(p):p.add_argument('--config',type=Path,default=default_config())
-    def record(p):p.add_argument('--record',required=True)
-    p=commands.add_parser('init',help='create a record for original videos')
-    record(p);p.add_argument('--videos',type=Path,required=True)
-    p=commands.add_parser('doctor',help='check configured runtimes and login');config(p)
-    p=commands.add_parser('check',help='verify frozen record inputs')
-    record(p);p.add_argument('--hashes',action='store_true')
-    p=commands.add_parser('report',help='build an offline spatial/topology report')
-    config(p);p.add_argument('--partition',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
-    p=commands.add_parser('task',help='initialize a task from reviewed partition and registered scene')
-    record(p);p.add_argument('--partition',type=Path,required=True)
-    p.add_argument('--scene',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
-    p=commands.add_parser('run',help='execute fresh decisions and queued jobs')
-    config(p);p.add_argument('--task',type=Path,required=True);p.add_argument('--proxy')
-    p=commands.add_parser('tool',help='shared scene, perception, numerical audit and visual scoring tools')
-    config(p);p.add_argument('name',choices=['vidmap','perceive','scene','evaluate','score','connections','jobs'])
-    p.add_argument('arguments',nargs=argparse.REMAINDER)
+    root = argparse.ArgumentParser(prog="vibuild", description=__doc__)
+    from . import __version__
+
+    root.add_argument("--version", action="version", version=__version__)
+    root.add_argument("--config", type=Path)
+    commands = root.add_subparsers(dest="command", required=True)
+
+    def command(name, help, project=False):
+        p = commands.add_parser(name, help=help)
+        p.add_argument("--config", type=Path, default=argparse.SUPPRESS)
+        if project:
+            p.add_argument("project", type=Path)
+        return p
+
+    p = command("setup", "create or update local tool configuration")
+    for name in ("blender", "codex", "ffmpeg", "model", "vidmap-python"):
+        p.add_argument("--" + name)
+    p = command("doctor", "check requirements and print repairs")
+    p.add_argument("--stage", choices=("model", "register"), default="model")
+    p.add_argument("--deep", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p = command("install", "explicitly install an external tool")
+    p.add_argument("component", choices=("blender", "ffmpeg", "vidmap"))
+    p.add_argument("--python", type=Path)
+    p.add_argument("--destination", type=Path)
+    p = command("init", "create a project", True)
+    p.add_argument("--videos", type=Path)
+    p = command("register", "register source video or import COLMAP cameras", True)
+    p.add_argument("--device", choices=("cpu", "cuda"))
+    p.add_argument("--fps", type=float, default=2)
+    p.add_argument("--from", dest="reconstruction", type=Path)
+    p.add_argument("--images", type=Path)
+    p.add_argument("--sources", type=Path)
+    p = command(
+        "partition",
+        "review spatial scope and create the registered Blender scene",
+        True,
+    )
+    p.add_argument("--spec", type=Path)
+    p.add_argument("--reviewed", action="store_true")
+    p = command("run", "start modeling from current project state", True)
+    p.add_argument("--proxy")
+    p = command("status", "show project and stage progress", True)
+    p.add_argument("--json", action="store_true")
+    command("pause", "stop execution and prevent further writes", True)
+    p = command("resume", "resume modeling", True)
+    p.add_argument("--no-run", action="store_true")
+    p = command(
+        "stage", "record a review, acceptance, deferral, or owner handoff", True
+    )
+    p.add_argument("action", choices=("review", "accept", "defer", "handoff"))
+    p.add_argument("--target")
+    p.add_argument("--return-to")
+    p.add_argument("--score", type=Path)
+    p.add_argument("--reason")
+    p.add_argument("--view", action="append", default=[])
+    p.add_argument("--begin", action="store_true")
+    p.add_argument("--finish", action="store_true")
+    p.add_argument("--corrected", action="store_true")
+    p = command("audit", "assess the final scene on fit and held-out views", True)
+    from .tools import MODULES
+
+    p = command("tools", "advanced scene, evidence, and execution tools")
+    p.add_argument("name", choices=tuple(MODULES))
+    p.add_argument("arguments", nargs=argparse.REMAINDER)
     return root
 
 
 def main(argv=None):
-    args=parser().parse_args(argv)
+    args = parser().parse_args(argv)
+    from . import project
+
+    config = args.config
+    if config is None:
+        config = (
+            (args.project / "vibuild.json")
+            if hasattr(args, "project") and args.command != "init"
+            else default_config()
+        )
+    config = Path(config).absolute()
     try:
-        if args.cmd=='tool':
-            extra=list(args.arguments)
-            script=resources.ROOT/'tools'/('registration.py' if args.name=='vidmap' else f'{args.name}.py')
-            if '--help' in extra:
-                return subprocess.call([sys.executable,str(script),*extra])
-            if args.name=='vidmap':
-                return subprocess.call([sys.executable,str(script),
-                    '--config',str(args.config.resolve()),*extra])
-            if args.name in ('perceive','score','jobs') and '--config' not in extra:
-                extra+=['--config',str(args.config.resolve())]
-            if (args.name=='scene' or args.name=='evaluate' and extra[:1]==['compare']) and '--blender' not in extra:
-                extra+=['--blender',tool(args.config,'blender')]
-            env=dict(os.environ,VIBUILD_CONFIG=str(args.config.resolve()))
-            return subprocess.call([tool(args.config,'analysis_python'),
-                                    str(script),*extra],env=env)
-        if args.cmd=='run':
-            for name in ('analysis_python','blender','codex'):tool(args.config,name)
-            if not settings(args.config).get('session',{}).get('model'):
-                raise ValueError('Configure session.model before running decisions')
-            command=[tool(args.config,'analysis_python'),str(resources.ROOT/'tools/task_service.py'),
-                     '--task',str(args.task.resolve()),'--config',str(args.config.resolve())]
-            if args.proxy:command+=['--proxy',args.proxy]
-            return subprocess.call(command)
-        if args.cmd=='task':
-            from .layout import initialize_task
-            partition=resources.load(args.partition)
-            if partition.get('schema_version')!='partition_v1':raise ValueError('Expected partition_v1')
-            execution=partition.get('execution_plan') or partition.get('topology',{}).get('execution_plan')
-            if not execution:
-                sys.path.insert(0,str(resources.ROOT/'tools'))
-                from partition_report import graph_analysis
-                execution=graph_analysis(partition['regions'],partition['interfaces'],
-                    start=partition.get('topology',{}).get('start_region'))['execution_plan']
-            if execution.get('status')!='planned':raise ValueError('Partition requires a reviewed execution plan')
-            if not args.scene.is_file():raise ValueError('Provide a self-contained scene with registered cameras')
-            with args.scene.open('rb') as stream:
-                if stream.read(7)!=b'BLENDER':raise ValueError('Initial scene must be an uncompressed Blender project')
-            output=args.output.resolve()
-            if output.is_relative_to(resources.ROOT/'records'):
-                raise ValueError('Task output must not modify frozen records')
-            if output.exists() and any(output.iterdir()):raise ValueError('Task output must be empty')
-            paths=initialize_task(output,[s for chain in execution['chains'] for s in chain['steps']])
-            shutil.copyfile(args.scene,paths['scene'])
-            plan=resources.load(paths['plan']);plan.update(record=args.record,partition=str(args.partition.resolve()))
-            resources.save(paths['plan'],plan)
-            regions={r['id']:r for r in partition['regions']}
-            for step in plan['steps']:
-                resources.save(output/step['id']/'stage.json',step)
-                if step['id'] in regions:
-                    resources.save(output/step['id']/'region.json',{'region':regions[step['id']]})
-                    resources.save(output/step['id']/'job_template.json',{'steps':[{'tool':'score','args':[
-                        'prepare','--record',args.record,'--partition',str(args.partition.resolve()),
-                        '--scene',str(paths['scene']),'--region',step['id'],
-                        '--output',str(output/step['id']/'scores/001')]}]})
-            resources.save(paths['status'],{'state':'ready','execution_paused':False,
-                'active_region':plan['execution_order'][0],'global_acceptance':'not_assessed'})
-            print(json.dumps({'task':str(output),'scene':str(paths['scene'])}));return 0
-        if args.cmd=='report':
-            out=args.output.resolve()
-            if out.is_relative_to((resources.ROOT/'records').resolve()):
-                raise ValueError('Report output must not modify frozen records')
-            python=tool(args.config,'analysis_python')
-            subprocess.run([python,str(resources.ROOT/'tools/partition_report.py'),
-                            '--input',str(args.partition.resolve()),'--output',str(out)],check=True)
-            return 0
-        if args.cmd=='doctor':
-            result=doctor(args.config)
-            if 'error' not in result['tools']['codex']:
-                auth=subprocess.run([tool(args.config,'codex'),'login','status'],capture_output=True,timeout=20)
-                result['codex_login']=auth.returncode==0
-                result['ok']=result['ok'] and result['codex_login']
-            if not settings(args.config).get('session',{}).get('model'):
-                result.update(ok=False,model_error='Configure session.model')
-        elif args.cmd=='check':
-            result=resources.validate_record(resources.record_path(args.record),args.hashes)
-        else:result=str(resources.init_record(args.record,args.videos))
-        print(json.dumps(result,ensure_ascii=False,indent=2))
-        return int(isinstance(result,dict) and result.get('ok') is False)
-    except (ValueError,KeyError,OSError,subprocess.SubprocessError) as exc:
-        print(f'vibuild: {exc}',file=sys.stderr);return 1
+        if args.command == "setup":
+            path = config if args.config else Path.cwd() / "vibuild.local.json"
+            result = setup(
+                path,
+                **{
+                    k: getattr(args, k)
+                    for k in ("blender", "codex", "ffmpeg", "model", "vidmap_python")
+                },
+            )
+        elif args.command == "doctor":
+            from .install import doctor
 
+            result = doctor(config, args.stage, args.deep)
+        elif args.command == "install":
+            from .install import install
 
-if __name__=='__main__':
-    raise SystemExit(main())
+            result = install(
+                args.component,
+                config if args.config else Path.cwd() / "vibuild.local.json",
+                args.python,
+                args.destination,
+            )
+        elif args.command == "init":
+            result = project.initialize(args.project, args.videos, config)
+        elif args.command == "register":
+            result = project.register(
+                args.project,
+                config,
+                args.device,
+                args.fps,
+                args.reconstruction,
+                args.images,
+                args.sources,
+            )
+        elif args.command == "partition":
+            result = project.partition(args.project, args.spec, args.reviewed, config)
+        elif args.command == "status":
+            result = project.status(args.project)
+        elif args.command == "pause":
+            result = project.pause(args.project)
+        elif args.command == "stage":
+            from .runtime.stages import transition
+
+            result = transition(
+                args.project,
+                args.action,
+                args.target,
+                args.score,
+                args.reason,
+                args.view,
+                args.begin,
+                args.finish,
+                args.corrected,
+                args.return_to,
+            )
+        elif args.command == "tools":
+            from .tools import invoke
+
+            previous = os.environ.get("VIBUILD_CONFIG")
+            os.environ["VIBUILD_CONFIG"] = str(config)
+            try:
+                return invoke(args.name, args.arguments, config)
+            finally:
+                if previous is None:
+                    os.environ.pop("VIBUILD_CONFIG", None)
+                else:
+                    os.environ["VIBUILD_CONFIG"] = previous
+        elif args.command == "audit":
+            from .assessment.final import audit
+
+            result = audit(args.project, config)
+        else:
+            if args.command == "resume":
+                result = project.resume(args.project)
+                if args.no_run:
+                    print(json.dumps(result))
+                    return 0
+            state = project.status(args.project)
+            if state["paused"]:
+                raise ValueError("Project is paused. Use: vibuild resume PROJECT")
+            if not (args.project / "plan.json").is_file():
+                raise ValueError(
+                    "Run vibuild partition PROJECT --spec FILE --reviewed first"
+                )
+            if not state["active_region"]:
+                raise ValueError(
+                    "Local stages are complete. Use: vibuild audit PROJECT"
+                )
+            for name in ("blender", "codex"):
+                tool(config, name)
+            if not settings(config)["session"].get("model"):
+                raise ValueError("Choose a model with vibuild setup --model MODEL")
+            from .runtime.service import run
+
+            result = run(args.project.resolve(), config, getattr(args, "proxy", None))
+        if args.command == "doctor" and not args.json:
+            for check in result["checks"]:
+                detail = check.get("reason", check.get("detail", ""))
+                print(f"{check['status'].upper():7} {check['name']}: {detail}")
+                if check.get("fix"):
+                    print(f"        Fix: {check['fix']}")
+        elif args.command == "status" and not args.json:
+            print(
+                f"{result['project']}\nState: {result['state']}  Paused: {result['paused']}  Active: {result['active_region'] or '-'}"
+            )
+            if result["scene"]:
+                print(f"Scene: {result['scene']}")
+            for stage in result["stages"]:
+                print(f"{stage['id']:6} {stage['state']}")
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        return int(
+            result.get("ok") is False
+            or args.command == "audit"
+            and not result["passed"]
+            or args.command in ("run", "resume")
+            and result.get("state") in ("blocked", "failed")
+        )
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError) as exc:
+        print(f"vibuild: {exc}", file=sys.stderr)
+        return 1

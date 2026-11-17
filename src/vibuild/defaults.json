@@ -1,0 +1,23 @@
+{
+  "runtime": {
+    "blender": "",
+    "codex": "",
+    "vidmap": {
+      "source": "third_party/vidmap",
+      "python": ""
+    },
+    "ffmpeg": ""
+  },
+  "session": {
+    "model": "",
+    "reasoning_effort": "high"
+  },
+  "budget": {
+    "session_minutes": 60,
+    "idle_minutes": 20
+  },
+  "rendering": {
+    "max_workers": 3,
+    "threads_per_worker": 4
+  }
+}

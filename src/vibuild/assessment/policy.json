@@ -1,0 +1,49 @@
+{
+  "version": "regional-score-v3",
+  "dimensions": {
+    "structure": {
+      "label": "Spatial structure",
+      "weight": 0.3
+    },
+    "completeness": {
+      "label": "Component completeness",
+      "weight": 0.25
+    },
+    "alignment": {
+      "label": "Position and proportion",
+      "weight": 0.2
+    },
+    "appearance": {
+      "label": "Material appearance",
+      "weight": 0.15
+    },
+    "connectivity": {
+      "label": "Connectivity",
+      "weight": 0.1
+    }
+  },
+  "anchors": {
+    "100": "No discernible difference within the observed scope",
+    "90": "Only tiny differences",
+    "80": "Broadly consistent with minor defects",
+    "70": "Obvious local defects",
+    "50": "Major elements clearly wrong",
+    "25": "Only fragments match",
+    "0": "Absent or wholly contradictory"
+  },
+  "thresholds": {
+    "region": 75,
+    "dimension": 60,
+    "global": 80,
+    "confidence": 0.7,
+    "views": 2
+  },
+  "aggregation": "0.7 * view mean + 0.3 * view minimum; unknown contributes zero to lower bound",
+  "scope": "Rapid visual and structural-clue assessment; not measured depth accuracy, physical safety or complete-scene acceptance",
+  "closeout": {
+    "max_seam_locations": 3,
+    "max_views": 2,
+    "max_corrections": 1,
+    "max_reviews": 1
+  }
+}

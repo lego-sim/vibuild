@@ -5,7 +5,10 @@ __pycache__/
 .venv/
 build/
 dist/
-configs/local.json
+vibuild.local.json
+.vibuild/
+projects/
+.ruff_cache/
 .env
 .env.*
 .codex/

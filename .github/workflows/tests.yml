@@ -1,0 +1,26 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e '.[test]' build
+      - run: python -m pytest -q
+      - run: python -m build --wheel
+      - name: Installed CLI outside checkout
+        run: |
+          python -m venv /tmp/vibuild-wheel-env
+          /tmp/vibuild-wheel-env/bin/pip install dist/*.whl
+          cd /tmp
+          unset PYTHONPATH
+          /tmp/vibuild-wheel-env/bin/vibuild --help
+          /tmp/vibuild-wheel-env/bin/vibuild init /tmp/vibuild-smoke
+          /tmp/vibuild-wheel-env/bin/vibuild status /tmp/vibuild-smoke
+          /tmp/vibuild-wheel-env/bin/vibuild tools score --help
