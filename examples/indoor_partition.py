@@ -479,7 +479,7 @@ def apply_spatial_review(data):
     data["topology"].update(
         start_region="R11",
         reviewed_loop=["R05", "R08", "R09", "R07", "R05"],
-        start_reason="Endpoint of the reviewed cycle quotient. Execute each region separately, with one additional closure session per simple cycle. Provisional until local evidence acceptance.",
+        start_reason="Start with each reviewed region, then handle observed interfaces with ordinary J connection sessions. Provisional until local evidence acceptance.",
         layout={
             "R01": [90, 65],
             "R04": [235, 65],

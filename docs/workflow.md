@@ -6,8 +6,7 @@
 3. **Review partition:** inspect the spatial preview, define finite regional boxes and
    alignment, and review topology. Approve explicitly with `--reviewed`; this freezes
    inputs and creates an empty Blender scene containing the registered cameras.
-4. **Model:** each fresh Codex session works on the active region, connection, or cycle
-   closure. It submits a scoped edit job; Python executes, renders, waits, and scores.
+4. **Model:** each fresh Codex session works on the active R region or J connection. It submits a scoped edit job; Python executes, renders, waits, and scores.
    The next decision receives current images and findings, without conversation history.
 5. **Closeout:** after visual passage, inspect existing seam views. At most one
    correction and one review are allowed per stage, across restarts. Seam-only
@@ -39,7 +38,7 @@ inputs/                     frozen record, camera calibration, RGB, source video
 partition.json, .html        reviewed scope, topology, and preview
 scene.blend                 latest saved geometry and packed assets
 plan.json, status.json       program-owned stages and progress
-Rxx/, Lxx/, Jxx/             regional, cycle-closure, and connection evidence
+Rxx/, Jxx/                  regional and connection evidence
   iterations/NNN/           edit and reference/before/after/difference cards
   scores/NNN/               independent assessment
 .runtime/                   execution queue, sessions, locks, caches, full logs

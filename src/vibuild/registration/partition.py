@@ -11,289 +11,100 @@ from pathlib import Path
 
 
 def graph_analysis(regions, interfaces, start=None):
-    """Keep the physical graph intact; bridge blocks are planning diagnostics only."""
+    """Order regional work, then assign each observed interface to a J connection."""
     ids = sorted(r["id"] for r in regions)
-    if len(ids) != len(set(ids)):
-        raise ValueError("Region IDs must be unique")
-    graph = {u: set() for u in ids}
+    if not ids or len(ids) != len(set(ids)):
+        raise ValueError("Regions must be nonempty and unique")
+    graph = {ident: set() for ident in ids}
     observed = []
-    edge_ids = set()
-    pairs = set()
-    for edge in interfaces:
+    edge_ids, pairs = set(), set()
+    for edge in sorted(interfaces, key=lambda item: item["id"]):
         a, b = edge["regions"]
         if a not in graph or b not in graph or a == b:
             raise ValueError("Interface must connect two distinct known regions")
         if edge["id"] in edge_ids:
             raise ValueError("Interface IDs must be unique")
         edge_ids.add(edge["id"])
-        if edge["status"] == "observed_transition":
-            pair = tuple(sorted((a, b)))
-            if pair in pairs:
-                raise ValueError(
-                    "Combine interface patches for each observed region pair"
-                )
-            pairs.add(pair)
-            graph[a].add(b)
-            graph[b].add(a)
-            observed.append(edge)
+        if edge["status"] != "observed_transition":
+            continue
+        pair = frozenset((a, b))
+        if pair in pairs:
+            raise ValueError("Combine interface patches for each observed region pair")
+        pairs.add(pair)
+        graph[a].add(b)
+        graph[b].add(a)
+        observed.append(edge)
     if start is not None and start not in graph:
         raise ValueError("Unknown start region")
-    start = start or next(
-        (u for u in ids if len(graph[u]) == 1), ids[0] if ids else None
-    )
-    entered = {}
-    low = {}
-    bridges = set()
-
-    def visit(u, parent=None):
-        entered[u] = low[u] = len(entered)
-        for v in sorted(graph[u]):
-            if v == parent:
-                continue
-            if v not in entered:
-                visit(v, u)
-                low[u] = min(low[u], low[v])
-                if low[v] > entered[u]:
-                    bridges.add(tuple(sorted((u, v))))
-            else:
-                low[u] = min(low[u], entered[v])
-
-    for u in ids:
-        if u not in entered:
-            visit(u)
-    blocks = []
-    owners = {}
-    for u in ids:
-        if u in owners:
-            continue
-        bid = f"C{len(blocks) + 1:02d}"
-        members = []
-        pending = [u]
-        owners[u] = bid
-        while pending:
-            v = pending.pop()
-            members.append(v)
-            for w in sorted(graph[v]):
-                if w not in owners and tuple(sorted((v, w))) not in bridges:
-                    owners[w] = bid
-                    pending.append(w)
-        blocks.append(
-            {
-                "id": bid,
-                "members": sorted(members),
-                "cycle_contracted": len(members) > 1,
-            }
-        )
-    tree = {b["id"]: set() for b in blocks}
-    for a, b in bridges:
-        tree[owners[a]].add(owners[b])
-        tree[owners[b]].add(owners[a])
-    components = []
-    seen = set()
-    for root in ([owners[start]] if start else []) + sorted(tree):
+    start = start or next((ident for ident in ids if len(graph[ident]) == 1), ids[0])
+    order, seen, components = [], set(), 0
+    for root in [start, *ids]:
         if root in seen:
             continue
-        members = []
-        todo = [root]
-        seen.add(root)
-        while todo:
-            u = todo.pop()
-            members.append(u)
-            for v in sorted(tree[u]):
-                if v not in seen:
-                    seen.add(v)
-                    todo.append(v)
-        components.append(sorted(members))
-    result = {
+        components += 1
+        pending = [root]
+        while pending:
+            ident = pending.pop()
+            if ident in seen:
+                continue
+            seen.add(ident)
+            order.append(ident)
+            pending.extend(sorted(graph[ident] - seen, reverse=True))
+    steps, built = [], set()
+    previous = None
+    for ident in order:
+        steps.append(
+            {
+                "id": ident,
+                "kind": "region",
+                "regions": [ident],
+                "depends_on": [previous] if previous else [],
+                "scene_after": previous,
+                "check_dependencies": sorted(graph[ident] & built),
+                "check_interfaces": [],
+                "result": "accepted",
+            }
+        )
+        built.add(ident)
+        previous = ident
+    for index, edge in enumerate(observed, 1):
+        ident = f"J{index:02d}"
+        steps.append(
+            {
+                "id": ident,
+                "kind": "connection",
+                "regions": sorted(edge["regions"]),
+                "depends_on": [previous],
+                "scene_after": previous,
+                "acceptance_dependencies": sorted(edge["regions"]),
+                "connection_interfaces": [edge["id"]],
+                "check_interfaces": [edge["id"]],
+                "result": "accepted",
+            }
+        )
+        previous = ident
+    return {
         "start_region": start,
         "observed_edges": len(observed),
-        "cycle_blocks": blocks,
-        "quotient_edges": [
-            list(pair)
-            for pair in sorted({tuple(sorted((a, b))) for a in tree for b in tree[a]})
-        ],
-        "branch_blocks": [u for u in tree if len(tree[u]) > 2],
-        "connected_components": len(components),
-        "cycles_alone_form_one_chain": len(components) == 1
-        and all(len(v) <= 2 for v in tree.values()),
-        "policy": "Observed edges only. Each region gets a clean serial session. Each simple cycle gets an additional bounded closure session. Contraction is diagnostic, never a modeling assignment.",
-    }
-    result["execution_plan"] = execution_plan(
-        blocks, tree, components, owners, observed, start
-    )
-    return result
-
-
-def execution_plan(blocks, tree, components, owners, observed, start):
-    """Plan paths of simple cycles and singletons; never absorb regions or invent edges.
-
-    Every stage edits the same evolving global Blender project. Connection IDs select
-    video/camera evidence for checks against its existing geometry; they are not
-    transferable geometry. Branches and non-simple cycles need explicit ordering.
-    """
-    block_map = {b["id"]: b for b in blocks}
-    by_pair = {frozenset(e["regions"]): e for e in observed}
-    errors = []
-    paths = []
-    for component in components:
-        root = (
-            owners[start]
-            if start and owners[start] in component
-            else next((b for b in component if len(tree[b]) <= 1), component[0])
-        )
-        if any(len(tree[b]) > 2 for b in component):
-            errors.append(
-                "Branched quotient requires an explicit execution order: "
-                + ", ".join(component)
-            )
-            continue
-        if len(tree[root]) > 1:
-            errors.append("Choose an endpoint start block for a single chain: " + root)
-            continue
-        path = []
-        previous = None
-        current = root
-        while current is not None:
-            path.append(current)
-            nxt = sorted(tree[current] - ({previous} if previous else set()))
-            previous, current = current, nxt[0] if nxt else None
-        paths.append(path)
-    for block in blocks:
-        members = set(block["members"])
-        internal = [e for e in observed if set(e["regions"]) <= members]
-        if len(members) > 1 and (
-            len(internal) != len(members)
-            or any(sum(r in e["regions"] for e in internal) != 2 for r in members)
-        ):
-            errors.append(
-                "Non-simple cycle requires explicit decomposition and cut constraints: "
-                + block["id"]
-            )
-    base = {
-        "status": "needs_plan" if errors else "planned",
-        "errors": errors,
-        "controller_implemented": True,
-        "scene": {
-            "mode": "single_global_project",
-            "initial_geometry": "empty",
-            "self_contained": True,
-            "write_policy": "serial",
-            "continuation": "Open the current project including all completed geometry; save changes to the same project.",
-            "comparison": "Render the current project using original connection video frames and their fixed camera poses/intrinsics.",
+        "connected_components": components,
+        "execution_plan": {
+            "status": "planned",
+            "chains": [{"id": "chain_01", "steps": steps}],
+            "region_agent_count": len(ids),
+            "connection_agent_count": len(observed),
+            "execution_agent_count": len(steps),
+            "max_active_modeling_agents": 1,
+            "scene": {
+                "mode": "single_global_project",
+                "initial_geometry": "empty",
+                "self_contained": True,
+            },
+            "global_audit": {
+                "depends_on": [step["id"] for step in steps],
+                "check_interfaces": [edge["id"] for edge in observed],
+            },
         },
-        "chains": [],
-        "region_agent_count": 0,
-        "closure_agent_count": 0,
-        "execution_agent_count": 0,
-        "max_active_modeling_agents": 1,
-        "global_audit": None,
     }
-    if errors:
-        return base
-    chains = []
-    closure_count = 0
-    acceptance = {}
-    previous_stage = None
-    for path in paths:
-        steps = []
-        bridge = None
-        previous_exit = None
-        for k, bid in enumerate(path):
-            members = set(block_map[bid]["members"])
-            internal = [e for e in observed if set(e["regions"]) <= members]
-            entry = (
-                next(r for r in bridge["regions"] if r in members)
-                if bridge
-                else (start if start in members else min(members))
-            )
-            outgoing = (
-                next(
-                    (
-                        e
-                        for e in observed
-                        if {owners[r] for r in e["regions"]} == {bid, path[k + 1]}
-                    ),
-                    None,
-                )
-                if k + 1 < len(path)
-                else None
-            )
-            order = [entry]
-            while len(order) < len(members):
-                candidates = [
-                    (e["id"], next(r for r in e["regions"] if r != order[-1]))
-                    for e in internal
-                    if order[-1] in e["regions"]
-                    and any(r not in order for r in e["regions"])
-                ]
-                order.append(min(candidates)[1])
-            cut = (
-                by_pair[frozenset([order[0], order[-1]])] if len(members) > 1 else None
-            )
-            cycle_steps = []
-            for j, region in enumerate(order):
-                incoming = by_pair[frozenset([order[j - 1], region])] if j else bridge
-                source = order[j - 1] if j else previous_exit
-                step = {
-                    "id": region,
-                    "kind": "region",
-                    "regions": [region],
-                    "cycle": bid if cut else None,
-                    "depends_on": [previous_stage] if previous_stage else [],
-                    "scene_after": previous_stage,
-                    "connection_interfaces": [incoming["id"]] if incoming else [],
-                    "check_dependencies": [source] if source else [],
-                    "check_interfaces": [incoming["id"]] if incoming else [],
-                    "deferred_interfaces": [cut["id"]]
-                    if cut and region in cut["regions"]
-                    else [],
-                    "result": "locally_passed_closure_pending" if cut else "accepted",
-                }
-                steps.append(step)
-                cycle_steps.append(region)
-                previous_stage = region
-            if cut:
-                closure_count += 1
-                closure_id = f"L{closure_count:02d}"
-                steps.append(
-                    {
-                        "id": closure_id,
-                        "kind": "closure",
-                        "cycle": bid,
-                        "regions": cut["regions"],
-                        "cycle_regions": order,
-                        "depends_on": [previous_stage],
-                        "scene_after": previous_stage,
-                        "check_dependencies": cycle_steps
-                        + ([previous_exit] if bridge else []),
-                        "connection_interfaces": [cut["id"]],
-                        "write_interfaces": [cut["id"]],
-                        "check_interfaces": sorted(e["id"] for e in internal)
-                        + ([bridge["id"]] if bridge else []),
-                        "deferred_interfaces": [],
-                        "result": "cycle_accepted",
-                    }
-                )
-                previous_stage = closure_id
-            for region in members:
-                acceptance[region] = steps[-1]["id"]
-            if outgoing:
-                previous_exit = next(r for r in outgoing["regions"] if r in members)
-            bridge = outgoing
-        chains.append({"id": f"chain_{len(chains) + 1:02d}", "steps": steps})
-    base.update(
-        chains=chains,
-        region_agent_count=len(owners),
-        closure_agent_count=closure_count,
-        execution_agent_count=len(owners) + closure_count,
-        global_audit={
-            "depends_on": sorted(set(acceptance.values())),
-            "accepted_region_stages": acceptance,
-            "check_interfaces": sorted(e["id"] for e in observed),
-            "requires": "The current global project, all regional and seam checks, fixed gates and held-out audit evidence. Unobserved mandatory connections remain unresolved.",
-        },
-    )
-    return base
 
 
 def thumbnails(data, limit=3):

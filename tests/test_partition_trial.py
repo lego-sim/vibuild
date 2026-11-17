@@ -1,4 +1,4 @@
-"""Spatial ownership and serial planning must preserve real seams and closure gates."""
+"""Spatial ownership and serial planning must preserve regional scope and connection gates."""
 
 import json
 from pathlib import Path
@@ -24,144 +24,66 @@ def graph(names, pairs):
     )
 
 
-def test_branch_requires_explicit_order_without_absorbing_regions():
+def test_branching_regions_and_connections_have_separate_ownership():
     regions, edges = graph(
-        "abcdef",
-        [("a", "b"), ("b", "c"), ("c", "a"), ("a", "d"), ("a", "e"), ("b", "f")],
+        ["R01", "R02", "R03", "R04"], [("R01", "R02"), ("R01", "R03"), ("R03", "R04")]
     )
-    result = graph_analysis(regions, edges, start="d")
-    assert (
-        not result["cycles_alone_form_one_chain"] and len(result["branch_blocks"]) == 1
-    )
-    assert result["execution_plan"]["status"] == "needs_plan"
-    assert result["execution_plan"]["chains"] == []
-
-
-def test_disconnected_or_candidate_edges_do_not_become_fake_neighbors():
-    regions, edges = graph("abcd", [("a", "b"), ("c", "d")])
-    edges.append({"id": "candidate", "regions": ["b", "c"], "status": "candidate"})
-    result = graph_analysis(regions, edges)
-    assert (
-        result["connected_components"] == 2
-        and len(result["execution_plan"]["chains"]) == 2
-    )
-    assert result["observed_edges"] == 2
-    chains = result["execution_plan"]["chains"]
-    assert chains[0]["steps"][0]["depends_on"] == []
-    assert chains[1]["steps"][0]["depends_on"] == [chains[0]["steps"][-1]["id"]]
-    for chain in chains:
-        assert chain["steps"][0]["connection_interfaces"] == []
-        assert chain["steps"][0]["check_dependencies"] == []
-    assert result["execution_plan"]["closure_agent_count"] == 0
-
-
-def test_ring_stays_separate_regions_with_one_extra_closure_agent():
-    regions, edges = graph("abcd", [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")])
-    result = graph_analysis(regions, edges, start="a")
-    assert result["cycles_alone_form_one_chain"]
-    plan = result["execution_plan"]
+    plan = graph_analysis(regions, edges, start="R01")["execution_plan"]
     steps = plan["chains"][0]["steps"]
-    assert plan["region_agent_count"] == 4 and plan["closure_agent_count"] == 1
-    assert [s["id"] for s in steps] == ["a", "b", "c", "L01", "d"]
-    assert steps[-1]["connection_interfaces"] == ["I3"]
-    assert steps[-1]["scene_after"] == "L01"
-    assert steps[-1]["check_dependencies"] == ["c"]
-    assert steps[3]["write_interfaces"] == ["I2"]
+    assert [s["id"] for s in steps] == ["R01", "R02", "R03", "R04", "J01", "J02", "J03"]
+    assert [s["kind"] for s in steps] == ["region"] * 4 + ["connection"] * 3
+    assert all(s["check_interfaces"] == [] for s in steps[:4])
+    assert sorted(i for s in steps[4:] for i in s["check_interfaces"]) == sorted(
+        e["id"] for e in edges
+    )
+    assert all(
+        set(s["acceptance_dependencies"]) == set(s["regions"]) for s in steps[4:]
+    )
 
 
-def test_reviewed_execution_uses_one_global_scene_with_real_connection_checks():
+def test_loop_has_ordinary_connections_without_special_stages():
     regions, edges = graph(
-        ["R01", "R02", "R03", "R04", "R05", "R07", "R08", "R09", "R10", "R11"],
-        [
-            ("R01", "R03"),
-            ("R01", "R04"),
-            ("R02", "R03"),
-            ("R02", "R04"),
-            ("R02", "R05"),
-            ("R02", "R11"),
-            ("R05", "R08"),
-            ("R05", "R10"),
-            ("R05", "R07"),
-            ("R07", "R09"),
-            ("R08", "R09"),
-        ],
+        ["R01", "R02", "R03"], [("R01", "R02"), ("R02", "R03"), ("R03", "R01")]
     )
-    for e, n in zip(edges, [1, 2, 3, 4, 5, 6, 8, 9, 11, 13, 14]):
-        e["id"] = f"I{n:02d}"
-    plan = graph_analysis(regions, edges, start="R11")["execution_plan"]
-    assert plan["status"] == "planned" and plan["controller_implemented"]
+    plan = graph_analysis(regions, edges, start="R01")["execution_plan"]
     steps = plan["chains"][0]["steps"]
-    lookup = {s["id"]: s for s in steps}
-    assert [s["id"] for s in steps] == [
-        "R11",
-        "R02",
-        "R03",
-        "R01",
-        "R04",
-        "L01",
-        "R05",
-        "R08",
-        "R09",
-        "R07",
-        "L02",
-        "R10",
-    ]
+    assert [s["id"] for s in steps] == ["R01", "R02", "R03", "J01", "J02", "J03"]
+    assert plan["region_agent_count"] == 3 and plan["connection_agent_count"] == 3
+    assert all(set(s["regions"]) == set(e["regions"]) for s, e in zip(steps[3:], edges))
+    assert plan["global_audit"]["check_interfaces"] == [e["id"] for e in edges]
     assert (
-        plan["region_agent_count"] == 10
-        and plan["closure_agent_count"] == 2
-        and plan["execution_agent_count"] == 12
-    )
-    assert plan["max_active_modeling_agents"] == 1
-    assert plan["scene"]["mode"] == "single_global_project"
-    assert plan["scene"]["initial_geometry"] == "empty"
-    assert plan["scene"]["self_contained"]
-    assert sorted(s["id"] for s in steps if s["kind"] == "region") == sorted(
-        r["id"] for r in regions
-    )
-    prior = set()
-    for i, s in enumerate(steps):
-        assert s["depends_on"] == ([steps[i - 1]["id"]] if i else [])
-        assert set(s["depends_on"] + s["check_dependencies"]) <= prior
-        assert s["scene_after"] == (steps[i - 1]["id"] if i else None)
-        assert "input_interfaces" not in s and "export_interfaces" not in s
-        if s["kind"] == "region":
-            assert len(s["connection_interfaces"]) == (1 if i else 0)
-            assert s["result"] == (
-                "locally_passed_closure_pending" if s["cycle"] else "accepted"
-            )
-        prior.add(s["id"])
-    assert lookup["L01"]["write_interfaces"] == ["I04"] and set(
-        lookup["L01"]["regions"]
-    ) == {"R02", "R04"}
-    assert lookup["L02"]["write_interfaces"] == ["I11"] and set(
-        lookup["L02"]["regions"]
-    ) == {"R05", "R07"}
-    assert set(lookup["L01"]["check_interfaces"]) == {"I01", "I02", "I03", "I04", "I06"}
-    assert set(lookup["L02"]["check_interfaces"]) == {"I08", "I14", "I13", "I11", "I05"}
-    for region, after, neighbor, interface in [
-        ("R05", "L01", "R02", "I05"),
-        ("R10", "L02", "R05", "I09"),
-    ]:
-        assert lookup[region]["scene_after"] == after
-        assert lookup[region]["connection_interfaces"] == [interface]
-        assert lookup[region]["check_dependencies"] == [neighbor]
-    # Every real seam has exactly one construction responsibility; closure gates
-    # additionally recheck already built seams instead of silently dropping them.
-    built = [
-        p for s in steps if s["kind"] == "region" for p in s["connection_interfaces"]
-    ]
-    built += [e for s in steps if s["kind"] == "closure" for e in s["write_interfaces"]]
-    assert sorted(built) == sorted(e["id"] for e in edges)
-    assert plan["global_audit"]["depends_on"] == ["L01", "L02", "R10", "R11"]
-    assert plan["global_audit"]["accepted_region_stages"]["R02"] == "L01"
-    assert plan["global_audit"]["accepted_region_stages"]["R05"] == "L02"
-    # Ordering must be independent of JSON list order.
-    assert (
-        graph_analysis(list(reversed(regions)), list(reversed(edges)), start="R11")[
+        graph_analysis(list(reversed(regions)), list(reversed(edges)), start="R01")[
             "execution_plan"
         ]
         == plan
     )
+
+
+def test_disconnected_and_candidate_edges_do_not_create_connections():
+    regions, edges = graph(
+        ["R01", "R02", "R03", "R04"], [("R01", "R02"), ("R03", "R04")]
+    )
+    edges.append({"id": "candidate", "regions": ["R02", "R03"], "status": "candidate"})
+    result = graph_analysis(regions, edges, start="R01")
+    steps = result["execution_plan"]["chains"][0]["steps"]
+    assert result["connected_components"] == 2 and result["observed_edges"] == 2
+    assert len([s for s in steps if s["kind"] == "connection"]) == 2
+    assert next(s for s in steps if s["id"] == "R03")["check_dependencies"] == []
+    assert not any(set(s["regions"]) == {"R02", "R03"} for s in steps)
+
+
+def test_each_step_continues_the_same_scene_in_dependency_order():
+    regions, edges = graph(["R01", "R02"], [("R01", "R02")])
+    plan = graph_analysis(regions, edges)["execution_plan"]
+    steps = plan["chains"][0]["steps"]
+    assert (
+        plan["scene"]["mode"] == "single_global_project"
+        and plan["scene"]["self_contained"]
+    )
+    for index, step in enumerate(steps):
+        assert step["depends_on"] == ([steps[index - 1]["id"]] if index else [])
+        assert step["scene_after"] == (steps[index - 1]["id"] if index else None)
+    assert plan["global_audit"]["depends_on"] == [s["id"] for s in steps]
 
 
 def test_connection_references_preserve_time_offsets_and_exclude_audit():
@@ -184,16 +106,6 @@ def test_connection_references_preserve_time_offsets_and_exclude_audit():
         {"frame": "after", "crossing_time": 2.1, "time_offset_seconds": 0.9},
     ]
     assert data["interfaces"][1]["reference_frames"] == []
-
-
-def test_non_simple_cycle_or_internal_chain_start_requires_planning():
-    regions, edges = graph(
-        "abcd", [("a", "b"), ("b", "c"), ("c", "a"), ("a", "d"), ("d", "c")]
-    )
-    assert graph_analysis(regions, edges)["execution_plan"]["status"] == "needs_plan"
-    regions, edges = graph("abc", [("a", "b"), ("b", "c")])
-    plan = graph_analysis(regions, edges, start="b")["execution_plan"]
-    assert plan["status"] == "needs_plan" and plan["chains"] == []
 
 
 def test_half_open_boxes_have_unique_3d_ownership():

@@ -168,3 +168,36 @@ def test_undistortion_identity_and_distorted_center():
         image, {"model": "SIMPLE_RADIAL", "params": [3, 2.5, 2.5, 0.1]}
     )
     assert np.array_equal(np.asarray(warped)[2, 2], np.asarray(image)[2, 2])
+
+
+def test_review_initializes_normal_connections_after_regions(registered_project):
+    blender = os.environ.get("VIBUILD_TEST_BLENDER")
+    if not blender:
+        pytest.skip("set VIBUILD_TEST_BLENDER for connection initialization")
+    root = registered_project
+    config = load(root / "vibuild.json")
+    config["runtime"]["blender"] = blender
+    save(root / "vibuild.json", config)
+    spec = root / "regions.json"
+    save(
+        spec,
+        {
+            "regions": [
+                {"id": "R01", "bounds_min": [-1, -1, -1], "bounds_max": [0.1, 1, 5]},
+                {"id": "R02", "bounds_min": [0.1, -1, -1], "bounds_max": [1, 1, 5]},
+            ]
+        },
+    )
+    project.partition(root, spec, True)
+    plan = load(root / "plan.json")
+    assert plan["execution_order"] == ["R01", "R02", "J01"]
+    assert [(s["id"], s["kind"]) for s in plan["steps"]] == [
+        ("R01", "region"),
+        ("R02", "region"),
+        ("J01", "connection"),
+    ]
+    packet = load(root / "J01/evidence/v001/connection.json")
+    assert packet["regions"] == ["R01", "R02"] and packet["interfaces"] == ["I01"]
+    prepare = load(root / "J01/job_template.json")["steps"][0]["args"]
+    assert "--connection" in prepare and prepare[prepare.index("--region") + 1] == "J01"
+    assert list(root.rglob("*.blend")) == [root / "scene.blend"]

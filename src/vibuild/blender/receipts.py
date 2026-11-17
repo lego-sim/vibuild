@@ -49,7 +49,7 @@ def validate(path, root, expected_region=None):
     if expected_region is not None:
         if (
             value.get("region") != expected_region
-            or expected_region[:1] not in ("R", "S", "L", "J")
+            or expected_region[:1] not in ("R", "J")
             or not expected_region[1:].isdigit()
         ):
             raise ValueError("Visual comparison region differs from assigned region")

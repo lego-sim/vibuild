@@ -213,8 +213,8 @@ def validate_boxes(boxes, regions, interfaces):
 
 
 def prepare(partition, requested, task_id, envelope=None, window=8.0, padding=2.0):
-    if not re.fullmatch(r"[JL]\d{2,}", task_id):
-        raise ValueError("Connection/closure IDs must be stable Jxx/Lxx identifiers")
+    if not re.fullmatch(r"J\d{2,}", task_id):
+        raise ValueError("Connection IDs must be stable Jxx identifiers")
     if (
         not math.isfinite(window)
         or window <= 0

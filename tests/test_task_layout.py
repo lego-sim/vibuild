@@ -15,7 +15,7 @@ def put(path, value):
 
 def test_task_paths_and_initial_plan(tmp_path):
     root = tmp_path / "modeling_20261109_175519"
-    initialize_task(root, ["R11", "R02", "L01"])
+    initialize_task(root, ["R11", "R02", "J01"])
     paths = task_paths(root, "R02", 8)
     assert paths["scene"] == root / "scene.blend"
     assert paths["iteration"] == root / "R02/iterations/008"
@@ -23,11 +23,11 @@ def test_task_paths_and_initial_plan(tmp_path):
     assert json.loads(paths["plan"].read_text())["execution_order"] == [
         "R11",
         "R02",
-        "L01",
+        "J01",
     ]
-    assert all((root / step / ".runtime").is_dir() for step in ["R11", "R02", "L01"])
+    assert all((root / step / ".runtime").is_dir() for step in ["R11", "R02", "J01"])
     with pytest.raises(ValueError, match="already exists"):
-        initialize_task(root, ["R11", "R02", "L01"])
+        initialize_task(root, ["R11", "R02", "J01"])
     with pytest.raises(ValueError, match="Unknown"):
         task_paths(root, "../R11")
     with pytest.raises(ValueError, match="positive"):
@@ -36,7 +36,7 @@ def test_task_paths_and_initial_plan(tmp_path):
 
 def test_monitor_reports_all_steps_and_cannot_complete_task(tmp_path):
     root = tmp_path / "modeling_20261109_175519"
-    initialize_task(root, ["R11", "R02", "L01"])
+    initialize_task(root, ["R11", "R02", "J01"])
     put(
         root / "status.json",
         {"state": "reopened_for_R11_seam_repair", "execution_paused": True},
@@ -63,7 +63,7 @@ def test_monitor_distinguishes_failed_check_from_tool_error(
     tmp_path, monkeypatch, code, command, expected
 ):
     root = tmp_path / "modeling_20261109_175519"
-    initialize_task(root, ["R11", "R02", "L01"])
+    initialize_task(root, ["R11", "R02", "J01"])
     monkeypatch.setattr("vibuild.runtime.monitor.subprocess.call", lambda cmd: code)
     assert (
         monitor_main(
@@ -79,7 +79,7 @@ def test_monitor_distinguishes_failed_check_from_tool_error(
 
 def test_monitor_preserves_unknown_interrupted_elapsed(tmp_path):
     root = tmp_path / "modeling_20261109_175519"
-    initialize_task(root, ["R11", "R02", "L01"])
+    initialize_task(root, ["R11", "R02", "J01"])
     event = {
         "event": "end",
         "time": 1,
@@ -92,3 +92,13 @@ def test_monitor_preserves_unknown_interrupted_elapsed(tmp_path):
     result = summary(root)
     assert result["timed_command_seconds"] == {}
     assert result["commands_with_unknown_elapsed"] == [event]
+
+
+def test_layout_uses_only_region_and_connection_stage_types(tmp_path):
+    root = tmp_path / "project"
+    initialize_task(root, ["R01", "J01"])
+    plan = json.loads((root / "plan.json").read_text())
+    assert [(step["id"], step["kind"]) for step in plan["steps"]] == [
+        ("R01", "region"),
+        ("J01", "connection"),
+    ]

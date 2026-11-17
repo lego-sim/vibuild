@@ -18,6 +18,15 @@ def closeout_policy():
     }
 
 
+def stage_kind(ident):
+    """The workflow has two stage types: regional work and connection work."""
+    if not re.fullmatch(r"[RJ][0-9]{2,}", ident):
+        raise ValueError(
+            "Unknown stage ID; use Rxx for a region or Jxx for a connection"
+        )
+    return "region" if ident.startswith("R") else "connection"
+
+
 def task_paths(root, region=None, round_number=None):
     """Paths for one evolving global scene and per-session evidence."""
     root = Path(root).resolve()
@@ -31,8 +40,7 @@ def task_paths(root, region=None, round_number=None):
         "progress": root / "progress.html",
     }
     if region is not None:
-        if not re.fullmatch(r"[RLJ][0-9]{2,}", region):
-            raise ValueError("Unknown regional, closure or connection session")
+        stage_kind(region)
         child = root / region
         result.update(
             region=child,
@@ -48,7 +56,7 @@ def task_paths(root, region=None, round_number=None):
                 score=child / "scores" / f"{round_number:03d}",
             )
     elif round_number is not None:
-        raise ValueError("Round requires a regional or closure session")
+        raise ValueError("Round requires a region or connection stage")
     return result
 
 
@@ -61,8 +69,8 @@ def initialize_task(root, steps):
     identifiers = [step["id"] for step in steps]
     if not identifiers or len(set(identifiers)) != len(identifiers):
         raise ValueError("Task steps must be nonempty and unique")
-    for region in identifiers:
-        task_paths(root, region)
+    for step in steps:
+        step["kind"] = stage_kind(step["id"])
     paths["cache"].mkdir(parents=True, exist_ok=True)
     for region in identifiers:
         child = task_paths(root, region)
@@ -79,14 +87,6 @@ def initialize_task(root, steps):
         "steps": [
             {
                 **step,
-                "kind": step.get(
-                    "kind",
-                    "closure"
-                    if step["id"].startswith("L")
-                    else "connection"
-                    if step["id"].startswith("J")
-                    else "region",
-                ),
                 "state": "planned",
                 "directory": step["id"],
             }

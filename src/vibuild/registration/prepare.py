@@ -330,15 +330,17 @@ def prepare_partition(project, spec=None, reviewed=False):
     graph = graph_analysis(regions, edges, data["topology"]["start_region"])
     data["execution_plan"] = value.get("execution_plan", graph["execution_plan"])
     if reviewed and data["execution_plan"]["status"] != "planned":
-        raise ValueError(
-            "Review the topology and provide an explicit execution_plan for branching or complex cycles"
-        )
+        raise ValueError("Review the topology and provide an ordered execution_plan")
     if reviewed:
         steps = [
             step
             for chain in data["execution_plan"]["chains"]
             for step in chain["steps"]
         ]
+        from vibuild.runtime.layout import stage_kind
+
+        for step in steps:
+            step["kind"] = stage_kind(step["id"])
         ids = [step["id"] for step in steps]
         if len(set(ids)) != len(ids) or {
             s["id"] for s in steps if s.get("kind", "region") == "region"

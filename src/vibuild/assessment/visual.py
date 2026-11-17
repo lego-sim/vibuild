@@ -174,8 +174,8 @@ def connection_spec(path, partition_path, partition, raw, source, width):
     rid = value["id"]
     import re
 
-    if not re.fullmatch(r"[JL][0-9]{2,}", rid):
-        raise ValueError("Expected a Jxx/Lxx connection task")
+    if not re.fullmatch(r"J[0-9]{2,}", rid):
+        raise ValueError("Expected a Jxx connection task")
     edges = {
         e["id"]: e
         for e in partition["interfaces"]

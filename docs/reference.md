@@ -29,10 +29,14 @@ alignment from source evidence. Scale is not independently verified metres.
 `start_region` chooses the first stage. Observed camera crossings through shared finite
 faces propose interfaces. Review them against the source. An explicit `interfaces` list
 can supply reviewed connections. Empty/unknown edges do not become invented neighbors.
-Simple chains/cycles receive a serial plan with separate closure stages. Branches or
-complex cycles need an explicit `execution_plan` with ordered `chains[].steps`, including
-each region once; dependencies must reference preceding stages. The optional capture
-recipe in `examples/indoor_partition.py` illustrates finite multi-box scopes.
+Stages are Rxx regions and Jxx connections only. The default order builds every region,
+then schedules one ordinary J stage for each observed interface. Loops and branches
+use the same connection workflow. No extra stage type is needed. Each J stage owns
+its endpoint regions and intervening connection space. Unknown edges remain unknown.
+An explicit `execution_plan` can provide ordered `chains[].steps` to group connection
+work; include each region once and reference preceding stages in dependencies.
+The optional capture recipe in `examples/indoor_partition.py` illustrates finite
+multi-box scopes.
 
 ## Advanced tools
 

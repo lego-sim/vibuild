@@ -227,10 +227,8 @@ def iterate(argv=None, root=None):
     if task_value and args.region and args.region != task_value["unit"]:
         p.error("region must match TASK.unit")
     region = task_value["unit"] if task_value else (args.region or "MAIN")
-    if region != "MAIN" and (
-        region[:1] not in ("R", "S", "L", "J") or not region[1:].isdigit()
-    ):
-        p.error("region must be an assigned R, S, L or J number")
+    if region != "MAIN" and (region[:1] not in ("R", "J") or not region[1:].isdigit()):
+        p.error("region must be an assigned R or J number")
     started = time.monotonic()
     out = args.output.resolve()
     if out.exists() and any(f.name != ".runtime" for f in out.iterdir()):
